@@ -1,0 +1,47 @@
+services:
+  # Vector Database Service
+  vectordb:
+    build: 
+      context: .
+      dockerfile: services/vectordb/Dockerfile
+    container_name: shelter-vectordb
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./chromadb_data:/data
+    environment:
+      - CHROMA_PERSIST_DIRECTORY=/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - shelter-network
+
+  # Data Scraper Service
+  scraper:
+    build: 
+      context: .
+      dockerfile: services/scraper/Dockerfile
+    container_name: shelter-scraper
+    ports:
+      - "8002:8002"
+    environment:
+      - VECTORDB_URL=http://vectordb:8000
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - SCRAPE_SCHEDULE=${SCRAPE_SCHEDULE:-0 2 * * *}
+      - SCRAPE_URL=${SCRAPE_URL}
+    depends_on:
+      vectordb:
+        condition: service_healthy
+    networks:
+      - shelter-network
+    restart: unless-stopped
+
+networks:
+  shelter-network:
+    driver: bridge
+
+volumes:
+  chromadb_data:
