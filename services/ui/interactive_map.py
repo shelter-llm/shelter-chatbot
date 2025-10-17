@@ -203,8 +203,14 @@ def create_interactive_map(
     ).add_to(m)
     
     # Get HTML and add click handler
+    # The click handler needs to be injected into the iframe's document
     map_html = m._repr_html_()
-    map_html = map_html.replace('</body>', click_handler + '</body>')
+    
+    # Inject the click handler script before the closing </script> tag in the iframe content
+    # We need to escape it properly for the iframe srcdoc attribute
+    injection_point = '&lt;/script&gt;\n&lt;/html&gt;'
+    if injection_point in map_html:
+        map_html = map_html.replace(injection_point, click_handler.replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;') + injection_point)
     
     return map_html
 
