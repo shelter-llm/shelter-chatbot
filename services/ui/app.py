@@ -5,13 +5,19 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 import gradio as gr
 import httpx
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 import logging
 from datetime import datetime
 import asyncio
 import json
 
 from map_generator import MapGenerator
+from interactive_map import (
+    create_interactive_map, 
+    create_initial_interactive_map,
+    parse_coordinates,
+    calculate_distance
+)
 from shared.config import UIConfig
 
 # Configure logging
@@ -249,68 +255,20 @@ def format_sources(sources: List[Dict], language: str) -> str:
 
 
 def create_initial_map() -> str:
-    """Create an initial empty map centered on Uppsala."""
-    return """
-    <div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background-color: #f0f0f0; border-radius: 5px;">
-        <div style="text-align: center; padding: 40px;">
-            <div style="font-size: 48px; margin-bottom: 20px;">🗺️</div>
-            <div style="font-size: 18px; color: #666;">Fråga om skyddsrum så visas de här på kartan</div>
-            <div style="font-size: 14px; color: #999; margin-top: 10px;">Ask about shelters and they will appear on the map</div>
-        </div>
-    </div>
-    """
+    """Create an initial interactive map centered on Uppsala."""
+    return create_initial_interactive_map()
 
 
 def create_dynamic_map(sources: List[Dict]) -> str:
-    """Create an interactive map with shelter markers based on chatbot sources.
+    """Create an interactive Folium map with shelter markers.
     
-    Shows up to 5 shelters with clickable markers that open in Google Maps.
+    Shows up to 5 shelters with clickable markers.
     """
     if not sources:
-        return create_initial_map()
+        return create_initial_interactive_map()
     
-    # Filter sources that have map URLs (limit to 5)
-    shelter_markers = []
-    for source in sources[:5]:
-        if source.get('map_url'):
-            shelter_markers.append({
-                'name': source.get('name', 'Unknown'),
-                'address': source.get('address', ''),
-                'map_url': source['map_url'],
-                'capacity': source.get('capacity', ''),
-            })
-    
-    if not shelter_markers:
-        return create_initial_map()
-    
-    # Build HTML with embedded Google Maps
-    # Use iframe to embed first shelter, then add links for others
-    html = '<div style="width: 100%; height: 100%; display: flex; flex-direction: column;">'
-    
-    # Main map (embedded from first shelter)
-    first_shelter = shelter_markers[0]
-    map_url = first_shelter['map_url'].replace('/search/', '/embed/')
-    html += f'<iframe src="{map_url}" width="100%" height="70%" style="border: 0; border-radius: 5px 5px 0 0;" loading="lazy"></iframe>'
-    
-    # List of all shelters
-    html += '<div style="padding: 15px; background: white; height: 30%; overflow-y: auto; border-radius: 0 0 5px 5px; border-top: 2px solid #ddd;">'
-    html += '<div style="font-weight: bold; margin-bottom: 10px;">📍 Skyddsrum på kartan:</div>'
-    
-    for i, shelter in enumerate(shelter_markers, 1):
-        html += f'''
-        <div style="margin-bottom: 10px; padding: 8px; background: #f5f5f5; border-radius: 4px;">
-            <div style="font-weight: 500;">{i}. {shelter['name']}</div>
-            <div style="font-size: 12px; color: #666; margin-top: 2px;">{shelter['address']}</div>
-            {f'<div style="font-size: 12px; color: #666;">👥 {shelter["capacity"]} personer</div>' if shelter['capacity'] else ''}
-            <a href="{shelter['map_url']}" target="_blank" style="display: inline-block; margin-top: 5px; font-size: 12px; color: #1a73e8; text-decoration: none;">
-                🗺️ Öppna i Google Maps →
-            </a>
-        </div>
-        '''
-    
-    html += '</div></div>'
-    
-    return html
+    # Pass sources to the interactive map generator
+    return create_interactive_map(shelters=sources, show_all_shelters=False)
 
 
 def create_ui():
@@ -378,9 +336,17 @@ def create_ui():
                 
                 # Right column: Interactive map only
                 with gr.Column(scale=1):
-                    map_title = gr.Markdown("### 🗺️ Skyddsrum på kartan")
+                    map_title = gr.Markdown("### 🗺️ Klicka på kartan för att välja plats / Click on map to select location")
+                    
+                    # Hidden input to store coordinates from map clicks
+                    coordinates_input = gr.Textbox(
+                        label="",
+                        visible=False,
+                        elem_id="selected_coordinates"
+                    )
+                    
                     map_display = gr.HTML(
-                        value=create_initial_map(),
+                        value=create_initial_interactive_map(),
                         elem_classes=["map-container"]
                     )
         
@@ -444,7 +410,38 @@ def create_ui():
         )
         
         clear_btn.click(
-            lambda: ([], create_initial_map()),
+            lambda: ([], create_initial_interactive_map()),
+            outputs=[chatbot, map_display]
+        )
+        
+        # Handle coordinate selection from map
+        async def handle_location_selection(coords_str, history, lang, max_d):
+            """Handle when user clicks on map to select location."""
+            if not coords_str:
+                yield history, create_initial_interactive_map()
+                return
+            
+            # Parse coordinates
+            coords = parse_coordinates(coords_str)
+            if not coords:
+                yield history, create_initial_interactive_map()
+                return
+            
+            lat, lng = coords
+            
+            # Create automatic query for nearest shelters
+            query = f"Vilka är de närmaste skyddsrummen till koordinaterna {lat}, {lng}?"
+            if lang == "en":
+                query = f"What are the nearest shelters to coordinates {lat}, {lng}?"
+            
+            # Stream response (only history and map)
+            async for update in chat_with_llm_stream(query, history, lang, max_d, None):
+                history_update, _, map_update = update
+                yield history_update, map_update
+        
+        coordinates_input.change(
+            handle_location_selection,
+            inputs=[coordinates_input, chatbot, language, max_docs],
             outputs=[chatbot, map_display]
         )
         
