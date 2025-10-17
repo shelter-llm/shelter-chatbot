@@ -489,6 +489,8 @@ Provide a helpful and informative answer. If the question is about proximity to 
                     "address": metadata.get("address", ""),
                     "capacity": metadata.get("capacity"),
                     "district": metadata.get("district", ""),
+                    "coordinates_lat": metadata.get("coordinates_lat"),
+                    "coordinates_lng": metadata.get("coordinates_lng"),
                     "map_url": metadata.get("map_url", ""),  # Include map URL for dynamic map
                     "score": doc.get("distance", 0.0),
                     "snippet": doc.get("document", "")[:200]  # First 200 chars
@@ -570,6 +572,9 @@ Provide a helpful and informative answer. If the question is about proximity to 
                     "address": metadata.get("address", ""),
                     "capacity": metadata.get("capacity"),
                     "district": metadata.get("district", ""),
+                    "coordinates_lat": metadata.get("coordinates_lat"),
+                    "coordinates_lng": metadata.get("coordinates_lng"),
+                    "map_url": metadata.get("map_url", ""),
                     "score": doc.get("distance", 0.0),
                     "snippet": doc.get("document", "")[:200]  # First 200 chars
                 })
