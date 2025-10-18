@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 config = UIConfig()
 map_generator = MapGenerator(vectordb_url=config.VECTORDB_URL)
 
-# Translations
+# Translations (keeping your existing translations)
 TRANSLATIONS = {
     "sv": {
         "title": "🏠 Uppsala Skyddsrum Chatbot",
@@ -179,6 +179,7 @@ async def chat_with_llm_stream(
                 
                 assistant_text = ""
                 sources = []
+                current_map = create_initial_map()
                 
                 # Read SSE stream
                 async for line in response.aiter_lines():
@@ -197,13 +198,19 @@ async def chat_with_llm_stream(
                                 assistant_text += chunk_data.get("text", "")
                                 # Update the last message (assistant) in history
                                 history[-1]["content"] = assistant_text
-                                # Don't update map yet, wait for sources
-                                yield history, format_sources([], language), create_initial_map()
+                                # Yield with current state
+                                yield history, format_sources(sources, language), current_map
                             
                             elif chunk_type == "sources":
                                 # Sources received - update both sources and map
                                 sources = chunk_data.get("sources", [])
-                                yield history, format_sources(sources, language), create_dynamic_map(sources)
+                                logger.info(f"Received {len(sources)} sources for map")
+                                # Create map with user location if available
+                                user_loc = None
+                                if user_location and user_location.get("lat") and user_location.get("lng"):
+                                    user_loc = (user_location["lat"], user_location["lng"])
+                                current_map = create_dynamic_map(sources, user_loc)
+                                yield history, format_sources(sources, language), current_map
                             
                             elif chunk_type == "error":
                                 # Error received
@@ -248,7 +255,16 @@ def format_sources(sources: List[Dict], language: str) -> str:
         if source.get('capacity'):
             sources_text += f"   👥 {t['capacity']}: {source['capacity']} {t['people']}\n"
         if source.get('district'):
-            sources_text += f"   🏘️ {t['district']}: {source['district']}\n"
+            sources_text += f"   🏙️ {t['district']}: {source['district']}\n"
+        
+        # Add distance if available (from geo-location filtering)
+        if source.get('geo_distance'):
+            distance = source['geo_distance']
+            if distance < 1:
+                sources_text += f"   📏 Avstånd: {int(distance * 1000)}m\n" if language == "sv" else f"   📏 Distance: {int(distance * 1000)}m\n"
+            else:
+                sources_text += f"   📏 Avstånd: {distance:.2f}km\n" if language == "sv" else f"   📏 Distance: {distance:.2f}km\n"
+        
         sources_text += "\n"
     
     return sources_text
@@ -256,19 +272,41 @@ def format_sources(sources: List[Dict], language: str) -> str:
 
 def create_initial_map() -> str:
     """Create an initial interactive map centered on Uppsala."""
-    return create_initial_interactive_map()
+    try:
+        map_html = create_initial_interactive_map()
+        logger.info(f"Initial map created, HTML length: {len(map_html)} characters")
+        return map_html
+    except Exception as e:
+        logger.error(f"Error creating initial map: {e}", exc_info=True)
+        return """
+        <div style="height: 100%; display: flex; align-items: center; justify-content: center; background: #f0f0f0;">
+            <div style="text-align: center; padding: 20px;">
+                <h3>⚠️ Map Initialization Error</h3>
+                <p>Could not load the interactive map. Check logs for details.</p>
+            </div>
+        </div>
+        """
 
 
-def create_dynamic_map(sources: List[Dict]) -> str:
+def create_dynamic_map(sources: List[Dict], user_location: Optional[Tuple[float, float]] = None) -> str:
     """Create an interactive Folium map with shelter markers.
     
     Shows up to 5 shelters with clickable markers.
     """
     if not sources:
+        logger.info("No sources provided, creating initial map")
         return create_initial_interactive_map()
     
-    # Pass sources to the interactive map generator
-    return create_interactive_map(shelters=sources, show_all_shelters=False)
+    logger.info(f"Creating map with {len(sources)} shelters and user_location={user_location}")
+    
+    # Log first shelter to check data structure
+    if sources:
+        logger.info(f"First shelter data: {sources[0]}")
+    
+    # Pass sources and user location to the interactive map generator
+    map_html = create_interactive_map(shelters=sources, user_location=user_location, show_all_shelters=False)
+    logger.info(f"Map HTML length: {len(map_html)} characters")
+    return map_html
 
 
 def create_ui():
@@ -285,30 +323,27 @@ def create_ui():
             margin-top: 10px;
         }
         .map-container {
-            height: 600px;
+            height: 600px !important;
+            min-height: 600px !important;
             border: 1px solid #ddd;
             border-radius: 5px;
-            overflow: hidden;
+            overflow: visible !important;
         }
-        """,
-        head="""
-        <script>
-        // Listen for postMessage from map iframe
-        window.addEventListener('message', function(event) {
-            if (event.data && event.data.type === 'map_click') {
-                var coordInput = document.getElementById('selected_coordinates');
-                if (coordInput) {
-                    // Find the actual input element within the Gradio component
-                    var actualInput = coordInput.querySelector('input, textarea');
-                    if (actualInput) {
-                        actualInput.value = event.data.coordinates;
-                        actualInput.dispatchEvent(new Event('input', { bubbles: true }));
-                        actualInput.dispatchEvent(new Event('change', { bubbles: true }));
-                    }
-                }
-            }
-        });
-        </script>
+        .map-container > div {
+            height: 600px !important;
+            min-height: 600px !important;
+        }
+        .map-container iframe {
+            width: 100% !important;
+            height: 600px !important;
+            min-height: 600px !important;
+            border: none !important;
+        }
+        /* Ensure Gradio HTML component has height */
+        div[data-testid="HTML"] {
+            height: 600px !important;
+            min-height: 600px !important;
+        }
         """
     ) as demo:
         
@@ -324,7 +359,7 @@ def create_ui():
                 # Left column: Chat interface
                 with gr.Column(scale=1):
                     chatbot = gr.Chatbot(
-                        height=550,
+                        height=400,
                         label="Conversation",
                         type="messages",
                         bubble_full_width=False,
@@ -345,6 +380,12 @@ def create_ui():
                     
                     clear_btn = gr.Button(TRANSLATIONS["sv"]["clear"])
                     
+                    # Sources display
+                    sources_display = gr.Markdown(
+                        value=TRANSLATIONS["sv"]["sources_placeholder"],
+                        elem_classes=["source-box"]
+                    )
+                    
                     # Example questions
                     examples_title = gr.Markdown(f"### {TRANSLATIONS['sv']['examples_title']}")
                     examples = gr.Examples(
@@ -353,22 +394,20 @@ def create_ui():
                         label=None
                     )
                 
-                # Right column: Interactive map only
+                # Right column: Interactive map
                 with gr.Column(scale=1):
-                    map_title = gr.Markdown("### 🗺️ Klicka på kartan för att välja plats / Click on map to select location")
+                    map_title = gr.Markdown("### 🗺️ Shelter Map")
                     
-                    # Small visible input to store coordinates from map clicks
-                    # Made visible with minimal styling so it can be accessed by JavaScript
+                    # Coordinate input for map clicks
                     coordinates_input = gr.Textbox(
                         label="Selected Coordinates (click map to set)",
                         placeholder="Click on map to select location...",
                         elem_id="selected_coordinates",
                         interactive=False,
-                        scale=0,
-                        container=True,
-                        max_lines=1
+                        visible=True
                     )
                     
+                    # Create map with explicit sizing
                     map_display = gr.HTML(
                         value=create_initial_interactive_map(),
                         elem_classes=["map-container"]
@@ -398,27 +437,41 @@ def create_ui():
 {TRANSLATIONS['sv']['about_text']}
                 """)
         
-        # Event handlers - streaming generator must be async
-        async def respond(message, history, lang, max_d):
+        # Listen for postMessage from iframe
+        demo.load(None, None, None, js="""
+        () => {
+            window.addEventListener('message', function(event) {
+                if (event.data && event.data.type === 'map_click') {
+                    var coordInput = document.querySelector('#selected_coordinates input, #selected_coordinates textarea');
+                    if (coordInput) {
+                        coordInput.value = event.data.coordinates;
+                        coordInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    }
+                }
+            });
+        }
+        """)
+        
+        # State for user location (shared across handlers)
+        user_location_state = gr.State(None)
+        
+        # Event handlers
+        async def respond(message, history, lang, max_d, user_loc):
             """Handle chat submission with streaming."""
             if not message.strip():
-                yield history, ""
+                yield history, "", create_initial_map(), user_loc
                 return
             
-            # No location needed - Google Maps handles navigation
-            location = None
-            
-            # Yield from the streaming generator (only history and map, no sources)
-            async for update in chat_with_llm_stream(message, history, lang, max_d, location):
-                # update is (history, sources_text, map_html)
-                # We only need history and map_html
-                history_update, _, map_update = update
-                yield history_update, map_update
+            # Stream updates
+            async for history_update, sources_update, map_update in chat_with_llm_stream(
+                message, history, lang, max_d, user_loc
+            ):
+                yield history_update, sources_update, map_update, user_loc
         
         msg.submit(
             respond,
-            inputs=[msg, chatbot, language, max_docs],
-            outputs=[chatbot, map_display]
+            inputs=[msg, chatbot, language, max_docs, user_location_state],
+            outputs=[chatbot, sources_display, map_display, user_location_state]
         ).then(
             lambda: "",
             outputs=[msg]
@@ -426,68 +479,72 @@ def create_ui():
         
         submit_btn.click(
             respond,
-            inputs=[msg, chatbot, language, max_docs],
-            outputs=[chatbot, map_display]
+            inputs=[msg, chatbot, language, max_docs, user_location_state],
+            outputs=[chatbot, sources_display, map_display, user_location_state]
         ).then(
             lambda: "",
             outputs=[msg]
         )
         
         clear_btn.click(
-            lambda: ([], create_initial_interactive_map()),
-            outputs=[chatbot, map_display]
+            lambda: ([], TRANSLATIONS["sv"]["sources_placeholder"], create_initial_interactive_map(), None),
+            outputs=[chatbot, sources_display, map_display, user_location_state]
         )
         
         # Handle coordinate selection from map
         async def handle_location_selection(coords_str, history, lang, max_d):
             """Handle when user clicks on map to select location."""
             if not coords_str:
-                yield history, create_initial_interactive_map()
+                yield history, "", create_initial_map(), None
                 return
             
             # Parse coordinates
             coords = parse_coordinates(coords_str)
             if not coords:
-                yield history, create_initial_interactive_map()
+                yield history, "", create_initial_map(), None
                 return
             
             lat, lng = coords
             
-            # Create automatic query for nearest shelters
-            query = f"Vilka är de närmaste skyddsrummen till koordinaterna {lat}, {lng}?"
-            if lang == "en":
-                query = f"What are the nearest shelters to coordinates {lat}, {lng}?"
+            # Store location for future queries
+            location = {"lat": lat, "lng": lng}
             
-            # Stream response (only history and map)
-            async for update in chat_with_llm_stream(query, history, lang, max_d, None):
-                history_update, _, map_update = update
-                yield history_update, map_update
+            # Create automatic query for nearest shelters
+            query = f"Vilka är de 5 närmaste skyddsrummen till mig på plats ({lat:.4f}, {lng:.4f})?"
+            if lang == "en":
+                query = f"What are the 5 nearest shelters to my location at ({lat:.4f}, {lng:.4f})?"
+            
+            # Stream response with location
+            async for history_update, sources_update, map_update in chat_with_llm_stream(
+                query, history, lang, max_d, location
+            ):
+                yield history_update, sources_update, map_update, location
         
         coordinates_input.change(
             handle_location_selection,
             inputs=[coordinates_input, chatbot, language, max_docs],
-            outputs=[chatbot, map_display]
+            outputs=[chatbot, sources_display, map_display, user_location_state]
         )
         
-        # Update UI language - Complete language switching
+        # Update UI language
         def update_language(lang):
             """Update all UI elements to selected language."""
             t = TRANSLATIONS[lang]
             examples_list = EXAMPLES_SV if lang == "sv" else EXAMPLES_EN
             
             return {
-                # Update all text elements
                 title_md: gr.update(value=f"# {t['title']}"),
                 desc_md: gr.update(value=t['description']),
                 msg: gr.update(placeholder=t["chat_placeholder"]),
                 submit_btn: gr.update(value=t["submit"]),
                 clear_btn: gr.update(value=t["clear"]),
                 examples_title: gr.update(value=f"### {t['examples_title']}"),
-                map_title: gr.update(value=f"### 🗺️ {t['map_title'] if 'map_title' in t else 'Skyddsrum på kartan'}"),
+                map_title: gr.update(value=f"### 🗺️ {t['map_title']}"),
                 settings_title_md: gr.update(value=f"## {t['settings_title']}"),
                 language: gr.update(label=t["language_label"]),
                 max_docs: gr.update(label=t["max_docs_label"]),
                 about_md: gr.update(value=f"### {t['about_title']}\n\n{t['about_text']}"),
+                sources_display: gr.update(value=t["sources_placeholder"]),
                 language_state: lang,
             }
         
@@ -506,6 +563,7 @@ def create_ui():
                 language,
                 max_docs,
                 about_md,
+                sources_display,
                 language_state,
             ]
         )

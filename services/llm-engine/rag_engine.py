@@ -16,7 +16,7 @@ class RAGEngine:
         self,
         api_key: str,
         vectordb_url: str,
-        model_name: str = "gemini-2.0-flash-exp",
+        model_name: str = "gemini-2.5-flash",
         temperature: float = 0.7,
         max_tokens: int = 2048
     ):
@@ -257,7 +257,8 @@ Provide a helpful and informative answer. If the question is about proximity to 
         self,
         query: str,
         max_docs: int = 5,
-        collection_name: str = "uppsala_shelters"
+        collection_name: str = "uppsala_shelters",
+        user_location: Optional[Dict[str, float]] = None
     ) -> List[Dict[str, Any]]:
         """
         Retrieve relevant context from vector database.
@@ -266,9 +267,10 @@ Provide a helpful and informative answer. If the question is about proximity to 
             query: User's query
             max_docs: Maximum number of documents to retrieve
             collection_name: Name of the collection to query
+            user_location: Optional dict with 'lat' and 'lng' keys for location-based filtering
             
         Returns:
-            List of relevant documents with metadata
+            List of relevant documents with metadata, sorted by relevance or distance
         """
         try:
             # Generate embedding for the query using Gemini
@@ -289,7 +291,7 @@ Provide a helpful and informative answer. If the question is about proximity to 
                     json={
                         "collection_name": collection_name,
                         "query_embeddings": [query_embedding],  # Use embeddings instead of texts
-                        "n_results": max_docs,
+                        "n_results": max_docs * 2 if user_location else max_docs,  # Get more if filtering by location
                     }
                 )
                 response.raise_for_status()
@@ -307,7 +309,6 @@ Provide a helpful and informative answer. If the question is about proximity to 
                 logger.info(f"Query returned {len(ids)} document IDs")
                 
                 # Step 2: Get complete documents with full metadata using IDs
-                # Use the new endpoint that fetches documents by specific IDs
                 get_response = await client.post(
                     f"{self.vectordb_url}/collections/{collection_name}/documents/by_ids",
                     json=ids
@@ -331,12 +332,75 @@ Provide a helpful and informative answer. If the question is about proximity to 
                             "distance": distances[i] if i < len(distances) else 0.0
                         })
                 
+                # If user location is provided, calculate geographic distances and re-sort
+                if user_location and user_location.get("lat") and user_location.get("lng"):
+                    logger.info(f"Filtering by user location: {user_location}")
+                    user_lat = user_location["lat"]
+                    user_lng = user_location["lng"]
+                    
+                    # Calculate geographic distance for each shelter
+                    for doc in context_docs:
+                        metadata = doc.get("metadata", {})
+                        shelter_lat = metadata.get("coordinates_lat")
+                        shelter_lng = metadata.get("coordinates_lng")
+                        
+                        if shelter_lat and shelter_lng:
+                            try:
+                                geo_distance = self._calculate_distance(
+                                    user_lat, user_lng, 
+                                    float(shelter_lat), float(shelter_lng)
+                                )
+                                doc["geo_distance"] = geo_distance
+                            except (ValueError, TypeError) as e:
+                                logger.warning(f"Could not calculate distance: {e}")
+                                doc["geo_distance"] = float('inf')
+                        else:
+                            doc["geo_distance"] = float('inf')
+                    
+                    # Sort by geographic distance
+                    context_docs.sort(key=lambda x: x.get("geo_distance", float('inf')))
+                    
+                    # Keep only top max_docs after sorting
+                    context_docs = context_docs[:max_docs]
+                    logger.info(f"Filtered to {len(context_docs)} nearest shelters")
+                
                 logger.info(f"Retrieved {len(context_docs)} context documents")
                 return context_docs
                 
         except Exception as e:
             logger.error(f"Error retrieving context: {e}")
             return []
+    
+    def _calculate_distance(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+        """Calculate distance between two coordinates using Haversine formula.
+        
+        Args:
+            lat1, lon1: First point coordinates
+            lat2, lon2: Second point coordinates
+            
+        Returns:
+            Distance in kilometers
+        """
+        from math import radians, sin, cos, sqrt, atan2
+        
+        # Earth radius in kilometers
+        R = 6371.0
+        
+        # Convert to radians
+        lat1_rad = radians(lat1)
+        lon1_rad = radians(lon1)
+        lat2_rad = radians(lat2)
+        lon2_rad = radians(lon2)
+        
+        # Haversine formula
+        dlon = lon2_rad - lon1_rad
+        dlat = lat2_rad - lat1_rad
+        
+        a = sin(dlat / 2)**2 + cos(lat1_rad) * cos(lat2_rad) * sin(dlon / 2)**2
+        c = 2 * atan2(sqrt(a), sqrt(1 - a))
+        
+        distance = R * c
+        return distance
     
     def format_context(self, documents: List[Dict[str, Any]]) -> str:
         """
@@ -426,8 +490,12 @@ Provide a helpful and informative answer. If the question is about proximity to 
             # Enhance query with location context if it's a location-based query
             enhanced_query = self.enhance_location_query(query)
             
-            # Retrieve relevant context using enhanced query
-            context_docs = await self.retrieve_context(enhanced_query, max_context_docs)
+            # Retrieve relevant context using enhanced query and user location
+            context_docs = await self.retrieve_context(
+                enhanced_query, 
+                max_context_docs,
+                user_location=user_location
+            )
             
             # Yield context info first
             yield {
@@ -448,7 +516,10 @@ Provide a helpful and informative answer. If the question is about proximity to 
             if user_location and user_location.get("latitude") and user_location.get("longitude"):
                 lat = user_location["latitude"]
                 lng = user_location["longitude"]
-                location_context = f"\n\nAnvändarens nuvarande plats: {lat:.4f}° N, {lng:.4f}° E (latitud, longitud)" if language == "sv" else f"\n\nUser's current location: {lat:.4f}° N, {lng:.4f}° E (latitude, longitude)"
+                if language == "sv":
+                    location_context = f"\n\nVIKTIG: Användarens valda plats är {lat:.4f}° N, {lng:.4f}° E. De skyddsrum som visas i kontexten har redan sorterats efter geografiskt avstånd från denna plats, med det närmaste först. Inkludera avståndet i kilometer i ditt svar när du diskuterar varje skyddsrum."
+                else:
+                    location_context = f"\n\nIMPORTANT: The user's selected location is {lat:.4f}° N, {lng:.4f}° E. The shelters shown in the context have already been sorted by geographic distance from this location, with the nearest first. Include the distance in kilometers in your response when discussing each shelter."
             
             # Create full prompt with total count and context count
             prompt = system_prompt.format(
@@ -483,7 +554,7 @@ Provide a helpful and informative answer. If the question is about proximity to 
             sources = []
             for doc in context_docs:
                 metadata = doc.get("metadata", {})
-                sources.append({
+                source = {
                     "id": metadata.get("id", "unknown"),
                     "name": metadata.get("name", "Unknown"),
                     "address": metadata.get("address", ""),
@@ -491,10 +562,16 @@ Provide a helpful and informative answer. If the question is about proximity to 
                     "district": metadata.get("district", ""),
                     "coordinates_lat": metadata.get("coordinates_lat"),
                     "coordinates_lng": metadata.get("coordinates_lng"),
-                    "map_url": metadata.get("map_url", ""),  # Include map URL for dynamic map
+                    "map_url": metadata.get("map_url", ""),
                     "score": doc.get("distance", 0.0),
                     "snippet": doc.get("document", "")[:200]  # First 200 chars
-                })
+                }
+                
+                # Add geographic distance if available
+                if "geo_distance" in doc:
+                    source["geo_distance"] = doc["geo_distance"]
+                
+                sources.append(source)
             
             yield {
                 "type": "sources",

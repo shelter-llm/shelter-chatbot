@@ -200,6 +200,35 @@ async def trigger_scrape(background_tasks: BackgroundTasks):
     }
 
 
+async def check_data_exists() -> bool:
+    """Check if shelter data already exists in the vector database.
+    
+    Returns:
+        True if data exists, False otherwise
+    """
+    try:
+        vectordb_url = config.VECTORDB_URL
+        
+        # Check if collection exists and has documents
+        response = requests.get(
+            f"{vectordb_url}/collections/{config.SHELTER_COLLECTION}/stats",
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            stats = response.json().get('stats', {})
+            count = stats.get('count', 0)
+            logger.info(f"Vector DB collection '{config.SHELTER_COLLECTION}' has {count} documents")
+            return count > 0
+        else:
+            logger.info(f"Collection '{config.SHELTER_COLLECTION}' does not exist yet")
+            return False
+            
+    except Exception as e:
+        logger.warning(f"Error checking if data exists: {e}")
+        return False
+
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize scheduler on startup."""
@@ -241,9 +270,31 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Error starting scheduler: {e}")
     
-    # Run initial scrape
-    logger.info("Running initial scrape...")
-    scrape_and_process()
+    # Check if data already exists before running initial scrape
+    data_exists = await check_data_exists()
+    
+    if data_exists:
+        # Get the actual count of documents
+        try:
+            response = requests.get(
+                f"{config.VECTORDB_URL}/collections/{config.SHELTER_COLLECTION}/stats",
+                timeout=10
+            )
+            if response.status_code == 200:
+                stats = response.json().get('stats', {})
+                doc_count = stats.get('count', 0)
+                logger.info(f"✓ Shelter data already exists in database ({doc_count} documents) - skipping initial scrape")
+                scrape_status.status = "idle"
+                scrape_status.shelters_scraped = doc_count
+            else:
+                logger.info("✓ Shelter data already exists in database - skipping initial scrape")
+                scrape_status.status = "idle"
+        except Exception as e:
+            logger.info("✓ Shelter data already exists in database - skipping initial scrape")
+            scrape_status.status = "idle"
+    else:
+        logger.info("✗ No shelter data found in database - running initial scrape...")
+        scrape_and_process()
 
 
 @app.on_event("shutdown")
