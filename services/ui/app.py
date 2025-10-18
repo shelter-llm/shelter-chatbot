@@ -290,6 +290,25 @@ def create_ui():
             border-radius: 5px;
             overflow: hidden;
         }
+        """,
+        head="""
+        <script>
+        // Listen for postMessage from map iframe
+        window.addEventListener('message', function(event) {
+            if (event.data && event.data.type === 'map_click') {
+                var coordInput = document.getElementById('selected_coordinates');
+                if (coordInput) {
+                    // Find the actual input element within the Gradio component
+                    var actualInput = coordInput.querySelector('input, textarea');
+                    if (actualInput) {
+                        actualInput.value = event.data.coordinates;
+                        actualInput.dispatchEvent(new Event('input', { bubbles: true }));
+                        actualInput.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                }
+            }
+        });
+        </script>
         """
     ) as demo:
         
@@ -338,11 +357,16 @@ def create_ui():
                 with gr.Column(scale=1):
                     map_title = gr.Markdown("### 🗺️ Klicka på kartan för att välja plats / Click on map to select location")
                     
-                    # Hidden input to store coordinates from map clicks
+                    # Small visible input to store coordinates from map clicks
+                    # Made visible with minimal styling so it can be accessed by JavaScript
                     coordinates_input = gr.Textbox(
-                        label="",
-                        visible=False,
-                        elem_id="selected_coordinates"
+                        label="Selected Coordinates (click map to set)",
+                        placeholder="Click on map to select location...",
+                        elem_id="selected_coordinates",
+                        interactive=False,
+                        scale=0,
+                        container=True,
+                        max_lines=1
                     )
                     
                     map_display = gr.HTML(

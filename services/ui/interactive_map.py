@@ -36,6 +36,7 @@ def create_interactive_map(
     
     # Add click handler for location selection
     # This JavaScript captures clicks and stores coordinates
+    # Uses postMessage to communicate with parent window since HTML component is isolated
     click_handler = """
     <script>
     var selectedMarker = null;
@@ -65,12 +66,39 @@ def create_interactive_map(
         selectedMarker.bindPopup("📍 Din plats / Your location<br>Lat: " + lat + "<br>Lng: " + lng).openPopup();
         selectedCoords = {lat: parseFloat(lat), lng: parseFloat(lng)};
         
-        // Store in a hidden input that Gradio can read
-        var coordInput = document.getElementById('selected_coordinates');
-        if (coordInput) {
-            coordInput.value = lat + ',' + lng;
-            // Trigger change event for Gradio
-            coordInput.dispatchEvent(new Event('input', { bubbles: true }));
+        // Use postMessage to send coordinates to parent window
+        var message = {
+            type: 'map_click',
+            coordinates: lat + ',' + lng
+        };
+        
+        // Try to access parent window (for iframe context)
+        try {
+            if (window.parent) {
+                window.parent.postMessage(message, '*');
+            } else if (window.top) {
+                window.top.postMessage(message, '*');
+            }
+        } catch (e) {
+            console.log('Could not send postMessage:', e);
+        }
+        
+        // Also try direct DOM access as fallback
+        try {
+            var coordInput = document.getElementById('selected_coordinates');
+            if (!coordInput && window.parent && window.parent.document) {
+                coordInput = window.parent.document.getElementById('selected_coordinates');
+            }
+            if (!coordInput && window.top && window.top.document) {
+                coordInput = window.top.document.getElementById('selected_coordinates');
+            }
+            if (coordInput) {
+                coordInput.value = lat + ',' + lng;
+                coordInput.dispatchEvent(new Event('input', { bubbles: true }));
+                coordInput.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        } catch (e) {
+            console.log('Could not access coordinate input directly:', e);
         }
     }
     
@@ -175,8 +203,14 @@ def create_interactive_map(
     ).add_to(m)
     
     # Get HTML and add click handler
+    # The click handler needs to be injected into the iframe's document
     map_html = m._repr_html_()
-    map_html = map_html.replace('</body>', click_handler + '</body>')
+    
+    # Inject the click handler script before the closing </script> tag in the iframe content
+    # We need to escape it properly for the iframe srcdoc attribute
+    injection_point = '&lt;/script&gt;\n&lt;/html&gt;'
+    if injection_point in map_html:
+        map_html = map_html.replace(injection_point, click_handler.replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;') + injection_point)
     
     return map_html
 
