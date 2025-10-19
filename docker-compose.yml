@@ -1,0 +1,86 @@
+services:
+  # Vector Database Service
+  vectordb:
+    build: 
+      context: .
+      dockerfile: services/vectordb/Dockerfile
+    container_name: shelter-vectordb
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./chromadb_data:/data
+    environment:
+      - CHROMA_PERSIST_DIRECTORY=/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - shelter-network
+
+  # Data Scraper Service
+  scraper:
+    build: 
+      context: .
+      dockerfile: services/scraper/Dockerfile
+    container_name: shelter-scraper
+    ports:
+      - "8002:8002"
+    environment:
+      - VECTORDB_URL=http://vectordb:8000
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - SCRAPE_SCHEDULE=${SCRAPE_SCHEDULE:-0 2 * * *}
+      - SCRAPE_URL=${SCRAPE_URL}
+    depends_on:
+      vectordb:
+        condition: service_healthy
+    networks:
+      - shelter-network
+    restart: unless-stopped
+
+  # LLM Engine Service
+  llm-engine:
+    build: 
+      context: .
+      dockerfile: services/llm-engine/Dockerfile
+    container_name: shelter-llm-engine
+    ports:
+      - "8001:8001"
+    environment:
+      - VECTORDB_URL=http://vectordb:8000
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - MODEL_NAME=${MODEL_NAME:-gemini-2.0-flash-exp}
+      - TEMPERATURE=${TEMPERATURE:-0.7}
+    depends_on:
+      vectordb:
+        condition: service_healthy
+    networks:
+      - shelter-network
+    restart: unless-stopped
+
+  # UI Service
+  ui:
+    build: 
+      context: .
+      dockerfile: services/ui/Dockerfile
+    container_name: shelter-ui
+    ports:
+      - "7860:7860"
+    environment:
+      - LLM_ENGINE_URL=http://llm-engine:8001
+      - VECTORDB_URL=http://vectordb:8000
+      - GRADIO_SERVER_NAME=${GRADIO_SERVER_NAME:-0.0.0.0}
+      - GRADIO_SERVER_PORT=${GRADIO_SERVER_PORT:-7860}
+    depends_on:
+      - llm-engine
+    networks:
+      - shelter-network
+    restart: unless-stopped
+
+networks:
+  shelter-network:
+    driver: bridge
+
+volumes:
+  chromadb_data:

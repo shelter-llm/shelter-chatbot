@@ -1,7 +1,72 @@
 [project]
 name = "shelter-chatbot"
 version = "0.1.0"
-description = "Add your description here"
+description = "LLM-powered chatbot for Uppsala emergency shelters"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "pydantic>=2.10.3",
+    "pydantic-settings>=2.6.1",
+    "python-dotenv>=1.0.1",
+]
+
+[project.optional-dependencies]
+vectordb = [
+    "chromadb>=0.5.23",
+    "fastapi>=0.115.5",
+    "uvicorn[standard]>=0.32.1",
+]
+scraper = [
+    "beautifulsoup4>=4.12.3",
+    "requests>=2.32.3",
+    "fastapi>=0.115.5",
+    "uvicorn[standard]>=0.32.1",
+    "apscheduler>=3.10.4",
+    "google-generativeai>=0.8.3",
+    "lxml>=5.3.0",
+]
+llm-engine = [
+    "langchain>=0.3.12",
+    "langchain-google-genai>=2.0.6",
+    "fastapi>=0.115.5",
+    "uvicorn[standard]>=0.32.1",
+]
+ui = [
+    "gradio>=5.7.1",
+    "requests>=2.32.3",
+]
+test = [
+    "pytest>=8.3.4",
+    "pytest-asyncio>=0.24.0",
+    "httpx>=0.28.1",
+    "pytest-cov>=6.0.0",
+]
+dev = [
+    "shelter-chatbot[vectordb,scraper,llm-engine,ui,test]",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+    "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
+]
+
+[tool.coverage.run]
+source = ["services", "shared"]
+omit = ["*/tests/*", "*/__pycache__/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]

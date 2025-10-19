@@ -1,0 +1,7 @@
+# UI Service Requirements
+gradio==5.9.1
+httpx==0.28.1
+python-dotenv==1.0.1
+folium==0.19.3
+pandas==2.2.3
+pydantic==2.10.3
