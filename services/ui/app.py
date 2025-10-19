@@ -417,7 +417,7 @@ def create_ui():
         language_state = gr.State("sv")
         
         # Dynamic title and description that we can update
-        title_md = gr.Markdown("# 🏠 Uppsala Skyddsrum Chatbot")
+        title_md = gr.Markdown("# Uppsala Skyddsrum Chatbot")
         desc_md = gr.Markdown(TRANSLATIONS["sv"]["description"])
         
         with gr.Tab("💬 Chat"):
@@ -453,29 +453,38 @@ def create_ui():
                         elem_classes=["source-box"]
                     )
                     
-                    # Example questions
+                    # Example questions - create two sets and toggle visibility
                     examples_title = gr.Markdown(f"### {TRANSLATIONS['sv']['examples_title']}")
-                    examples = gr.Examples(
-                        examples=EXAMPLES_SV,
-                        inputs=msg,
-                        label=None
-                    )
+                    
+                    with gr.Group(visible=True) as examples_sv_group:
+                        gr.Examples(
+                            examples=EXAMPLES_SV,
+                            inputs=msg,
+                            label=None
+                        )
+                    
+                    with gr.Group(visible=False) as examples_en_group:
+                        gr.Examples(
+                            examples=EXAMPLES_EN,
+                            inputs=msg,
+                            label=None
+                        )
                 
                 # Right column: Interactive map
                 with gr.Column(scale=1):
-                    map_title = gr.Markdown("### 🗺️ Shelter Map")
+                    map_title = gr.Markdown(f"### {TRANSLATIONS['sv']['map_title']}")
                     
                     # Location search with radius/count control
                     with gr.Row():
                         location_search = gr.Textbox(
-                            label="🔍 Search Location",
-                            placeholder="Enter location (e.g., 'Centralstationen', 'Kungsgatan')...",
+                            label="🔍 Sök plats" if True else "🔍 Search Location",
+                            placeholder="Skriv platsnamn (t.ex. 'Centralstationen', 'Kungsgatan')...",
                             scale=4
                         )
                         shelter_count = gr.Dropdown(
                             choices=[3, 5, 7, 10],
                             value=5,
-                            label="# Shelters",
+                            label="Antal",
                             scale=1
                         )
                     
@@ -485,10 +494,10 @@ def create_ui():
                             maximum=10,
                             value=5,
                             step=0.5,
-                            label="Max Distance (km)",
+                            label="Max avstånd (km)",
                             scale=2
                         )
-                        find_btn = gr.Button("Find Shelters", variant="primary", scale=1)
+                        find_btn = gr.Button("Hitta skyddsrum", variant="primary", scale=1)
                     
                     # Coordinate input for map clicks - HIDDEN for cleaner UI
                     coordinates_input = gr.Textbox(
@@ -509,25 +518,16 @@ def create_ui():
             settings_title_md = gr.Markdown(f"## {TRANSLATIONS['sv']['settings_title']}")
             
             with gr.Group():
+                # Language selector - no label, just the radio buttons
                 language = gr.Radio(
                     choices=[("Svenska", "sv"), ("English", "en")],
                     value="sv",
-                    label=TRANSLATIONS["sv"]["language_label"]
+                    label=None,  # Removed label
+                    show_label=False
                 )
-                
-                max_docs = gr.Slider(
-                    minimum=1,
-                    maximum=10,
-                    value=5,
-                    step=1,
-                    label=TRANSLATIONS["sv"]["max_docs_label"]
-                )
-                
-                about_md = gr.Markdown(f"""
-### {TRANSLATIONS['sv']['about_title']}
-
-{TRANSLATIONS['sv']['about_text']}
-                """)
+        
+        # Hidden state for max_docs (default 5)
+        max_docs = gr.State(5)
         
         # Listen for postMessage from iframe
         demo.load(None, None, None, js="""
@@ -689,7 +689,13 @@ def create_ui():
         def update_language(lang):
             """Update all UI elements to selected language."""
             t = TRANSLATIONS[lang]
-            examples_list = EXAMPLES_SV if lang == "sv" else EXAMPLES_EN
+            
+            # Update location search placeholders based on language
+            location_placeholder = "Skriv platsnamn (t.ex. 'Centralstationen', 'Kungsgatan')..." if lang == "sv" else "Enter location (e.g., 'Central Station', 'Kungsgatan')..."
+            location_label = "🔍 Sök plats" if lang == "sv" else "🔍 Search Location"
+            find_btn_text = "Hitta skyddsrum" if lang == "sv" else "Find Shelters"
+            shelter_label = "Antal" if lang == "sv" else "# Shelters"
+            radius_label = "Max avstånd (km)" if lang == "sv" else "Max Distance (km)"
             
             return {
                 title_md: gr.update(value=f"# {t['title']}"),
@@ -698,12 +704,14 @@ def create_ui():
                 submit_btn: gr.update(value=t["submit"]),
                 clear_btn: gr.update(value=t["clear"]),
                 examples_title: gr.update(value=f"### {t['examples_title']}"),
-                map_title: gr.update(value=f"### 🗺️ {t['map_title']}"),
+                examples_sv_group: gr.update(visible=(lang == "sv")),
+                examples_en_group: gr.update(visible=(lang == "en")),
+                map_title: gr.update(value=f"### {t['map_title']}"),
+                location_search: gr.update(placeholder=location_placeholder, label=location_label),
+                find_btn: gr.update(value=find_btn_text),
+                shelter_count: gr.update(label=shelter_label),
+                max_radius: gr.update(label=radius_label),
                 settings_title_md: gr.update(value=f"## {t['settings_title']}"),
-                language: gr.update(label=t["language_label"]),
-                max_docs: gr.update(label=t["max_docs_label"]),
-                about_md: gr.update(value=f"### {t['about_title']}\n\n{t['about_text']}"),
-                sources_display: gr.update(value=t["sources_placeholder"]),
                 language_state: lang,
             }
         
@@ -717,12 +725,14 @@ def create_ui():
                 submit_btn,
                 clear_btn,
                 examples_title,
+                examples_sv_group,
+                examples_en_group,
                 map_title,
+                location_search,
+                find_btn,
+                shelter_count,
+                max_radius,
                 settings_title_md,
-                language,
-                max_docs,
-                about_md,
-                sources_display,
                 language_state,
             ]
         )
