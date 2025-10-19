@@ -337,6 +337,7 @@ Provide a helpful and informative answer. If the question is about proximity to 
                     logger.info(f"Filtering by user location: {user_location}")
                     user_lat = user_location["lat"]
                     user_lng = user_location["lng"]
+                    max_radius_km = user_location.get("max_radius_km", None)  # Optional radius limit
                     
                     # Calculate geographic distance for each shelter
                     for doc in context_docs:
@@ -357,12 +358,24 @@ Provide a helpful and informative answer. If the question is about proximity to 
                         else:
                             doc["geo_distance"] = float('inf')
                     
+                    # Filter by radius if specified
+                    if max_radius_km is not None:
+                        before_count = len(context_docs)
+                        context_docs = [
+                            doc for doc in context_docs 
+                            if doc.get("geo_distance", float('inf')) <= max_radius_km
+                        ]
+                        logger.info(
+                            f"Filtered by {max_radius_km}km radius: "
+                            f"{before_count} → {len(context_docs)} shelters"
+                        )
+                    
                     # Sort by geographic distance
                     context_docs.sort(key=lambda x: x.get("geo_distance", float('inf')))
                     
                     # Keep only top max_docs after sorting
                     context_docs = context_docs[:max_docs]
-                    logger.info(f"Filtered to {len(context_docs)} nearest shelters")
+                    logger.info(f"Returning {len(context_docs)} nearest shelters")
                 
                 logger.info(f"Retrieved {len(context_docs)} context documents")
                 return context_docs
@@ -533,22 +546,45 @@ Provide a helpful and informative answer. If the question is about proximity to 
             logger.info(f"Generating streaming response with {len(context_docs)} context documents out of {total_shelters} total shelters")
             
             # Generate streaming response
-            response = self.model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(
-                    temperature=self.temperature,
-                    max_output_tokens=self.max_tokens,
-                ),
-                stream=True  # Enable streaming
-            )
-            
-            # Stream chunks
-            for chunk in response:
-                if chunk.text:
-                    yield {
-                        "type": "chunk",
-                        "text": chunk.text
-                    }
+            try:
+                response = self.model.generate_content(
+                    prompt,
+                    generation_config=genai.GenerationConfig(
+                        temperature=self.temperature,
+                        max_output_tokens=self.max_tokens,
+                    ),
+                    stream=True  # Enable streaming
+                )
+                
+                # Stream chunks
+                try:
+                    for chunk in response:
+                        if chunk.text:
+                            yield {
+                                "type": "chunk",
+                                "text": chunk.text
+                            }
+                except StopIteration:
+                    # Normal end of stream - this is expected
+                    logger.info("Stream completed successfully")
+                except Exception as stream_error:
+                    logger.error(f"Error during stream iteration: {stream_error}", exc_info=True)
+                    # Check if response has prompt_feedback (safety filters)
+                    try:
+                        if hasattr(response, 'prompt_feedback'):
+                            logger.error(f"Prompt feedback: {response.prompt_feedback}")
+                    except:
+                        pass
+                    raise
+                    
+            except StopIteration:
+                # StopIteration during response creation - empty stream
+                logger.warning("Stream was empty - no content generated")
+                yield {
+                    "type": "error",
+                    "message": "The model did not generate any content. Please try rephrasing your question."
+                }
+                return
             
             # Yield sources at the end
             sources = []
@@ -579,7 +615,7 @@ Provide a helpful and informative answer. If the question is about proximity to 
             }
             
         except Exception as e:
-            logger.error(f"Error generating streaming response: {e}")
+            logger.error(f"Error generating streaming response: {e}", exc_info=True)
             error_message = {
                 "sv": f"Ursäkta, jag kunde inte generera ett svar just nu. Fel: {str(e)}",
                 "en": f"Sorry, I couldn't generate a response right now. Error: {str(e)}"

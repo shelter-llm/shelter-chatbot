@@ -123,25 +123,59 @@ EXAMPLES_EN = [
 ]
 
 
+async def extract_location_from_query(query: str) -> Optional[str]:
+    """
+    Extract location names from user queries using pattern matching.
+    
+    Supports patterns like:
+    - "från [location]" (Swedish: "from [location]")
+    - "near [location]" (English)
+    - "vid [location]" (Swedish: "at [location]")
+    - "i [location]" (Swedish: "in [location]")
+    - "nära [location]" (Swedish: "near [location]")
+    
+    Returns the first matched location or None.
+    """
+    import re
+    
+    # Pattern to match location references
+    # Matches capitalized words, stops at punctuation, spaces followed by lowercase, or conjunctions
+    patterns = [
+        r"från\s+([A-ZÅÄÖ][a-zåäö]+(?:\s+[A-ZÅÄÖ][a-zåäö]+)*)",
+        r"from\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
+        r"vid\s+([A-ZÅÄÖ][a-zåäö]+(?:\s+[A-ZÅÄÖ][a-zåäö]+)*)",
+        r"nära\s+([A-ZÅÄÖ][a-zåäö]+(?:\s+[A-ZÅÄÖ][a-zåäö]+)*)",
+        r"near\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
+        r"i\s+([A-ZÅÄÖ][a-zåäö]+(?:\s+[A-ZÅÄÖ][a-zåäö]+)*)\??",  # Allow optional ?
+        r"in\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
+        r"at\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, query)
+        if match:
+            location = match.group(1).strip()
+            # Stop at conjunctions manually
+            for conjunction in [" eller", " or", ","]:
+                if conjunction in location:
+                    location = location.split(conjunction)[0].strip()
+            # Filter out common non-location words
+            exclude_words = ["Vilka", "Visa", "Find", "Show", "Which", "What"]
+            if location and location not in exclude_words:
+                return location
+    
+    return None
+
+
 async def chat_with_llm_stream(
     message: str, 
     history: List[Dict], 
     language: str, 
-    max_docs: int = 5,
+    max_docs: int,
     user_location: Optional[Dict] = None
-) -> tuple:
+):
     """
-    Stream responses from LLM Engine and update UI progressively.
-    
-    Args:
-        message: User's message
-        history: Chat history in messages format
-        language: Selected language
-        max_docs: Maximum context documents
-        user_location: Optional dict with 'lat' and 'lng' keys
-        
-    Yields:
-        Tuple of (updated history, formatted sources, map HTML)
+    Stream responses from LLM engine and update UI progressively.
     """
     if not message.strip():
         return
@@ -153,6 +187,33 @@ async def chat_with_llm_stream(
     history.append({"role": "assistant", "content": ""})
     
     try:
+        # Extract location from message if mentioned
+        extracted_location = await extract_location_from_query(message)
+        
+        # If location extracted and we don't already have user location, geocode it
+        if extracted_location and not (user_location and user_location.get("lat")):
+            logger.info(f"Extracted location from query: {extracted_location}")
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    geocode_response = await client.post(
+                        f"{config.LLM_ENGINE_URL}/geocode",
+                        json={"location": extracted_location}
+                    )
+                    geocode_response.raise_for_status()
+                    geocode_data = geocode_response.json()
+                    
+                    if geocode_data.get("success"):
+                        # Update user_location with geocoded coordinates
+                        user_location = {
+                            "lat": geocode_data["lat"],
+                            "lng": geocode_data["lng"],
+                            "name": extracted_location,
+                            "max_radius_km": 5.0  # Default 5km radius
+                        }
+                        logger.info(f"Geocoded '{extracted_location}' to ({geocode_data['lat']}, {geocode_data['lng']})")
+            except Exception as e:
+                logger.warning(f"Failed to geocode extracted location '{extracted_location}': {e}")
+        
         # Prepare request payload
         payload = {
             "message": message,
@@ -167,6 +228,9 @@ async def chat_with_llm_stream(
                 "latitude": user_location["lat"],
                 "longitude": user_location["lng"]
             }
+            # Add radius if specified
+            if user_location.get("max_radius_km"):
+                payload["user_location"]["max_radius_km"] = user_location["max_radius_km"]
         
         # Call streaming endpoint
         async with httpx.AsyncClient(timeout=120.0) as client:
@@ -199,7 +263,7 @@ async def chat_with_llm_stream(
                                 # Update the last message (assistant) in history
                                 history[-1]["content"] = assistant_text
                                 # Yield with current state
-                                yield history, format_sources(sources, language), current_map
+                                yield history, format_sources(sources, language), current_map, user_location
                             
                             elif chunk_type == "sources":
                                 # Sources received - update both sources and map
@@ -209,14 +273,16 @@ async def chat_with_llm_stream(
                                 user_loc = None
                                 if user_location and user_location.get("lat") and user_location.get("lng"):
                                     user_loc = (user_location["lat"], user_location["lng"])
+                                    # Add location name to popup if available
+                                    location_name = user_location.get("name", "Selected Location")
                                 current_map = create_dynamic_map(sources, user_loc)
-                                yield history, format_sources(sources, language), current_map
+                                yield history, format_sources(sources, language), current_map, user_location
                             
                             elif chunk_type == "error":
                                 # Error received
                                 error_msg = chunk_data.get("message", "Unknown error")
                                 history[-1]["content"] = error_msg
-                                yield history, "", create_initial_map()
+                                yield history, "", create_initial_map(), user_location
                                 return
                             
                             elif chunk_type == "done":
@@ -231,13 +297,13 @@ async def chat_with_llm_stream(
         logger.error(f"HTTP error during streaming: {e}")
         error_msg = TRANSLATIONS[language]["error_message"]
         history[-1]["content"] = error_msg
-        yield history, "", create_initial_map()
+        yield history, "", create_initial_map(), user_location
     
     except Exception as e:
         logger.error(f"Unexpected error during streaming: {e}")
         error_msg = TRANSLATIONS[language]["error_message"]
         history[-1]["content"] = error_msg
-        yield history, "", create_initial_map()
+        yield history, "", create_initial_map(), user_location
 
 
 def format_sources(sources: List[Dict], language: str) -> str:
@@ -380,9 +446,10 @@ def create_ui():
                     
                     clear_btn = gr.Button(TRANSLATIONS["sv"]["clear"])
                     
-                    # Sources display
+                    # Sources display - REMOVED for cleaner UI
                     sources_display = gr.Markdown(
-                        value=TRANSLATIONS["sv"]["sources_placeholder"],
+                        value="",
+                        visible=False,  # Hidden for cleaner UI
                         elem_classes=["source-box"]
                     )
                     
@@ -398,13 +465,38 @@ def create_ui():
                 with gr.Column(scale=1):
                     map_title = gr.Markdown("### 🗺️ Shelter Map")
                     
-                    # Coordinate input for map clicks
+                    # Location search with radius/count control
+                    with gr.Row():
+                        location_search = gr.Textbox(
+                            label="🔍 Search Location",
+                            placeholder="Enter location (e.g., 'Centralstationen', 'Kungsgatan')...",
+                            scale=4
+                        )
+                        shelter_count = gr.Dropdown(
+                            choices=[3, 5, 7, 10],
+                            value=5,
+                            label="# Shelters",
+                            scale=1
+                        )
+                    
+                    with gr.Row():
+                        max_radius = gr.Slider(
+                            minimum=0.5,
+                            maximum=10,
+                            value=5,
+                            step=0.5,
+                            label="Max Distance (km)",
+                            scale=2
+                        )
+                        find_btn = gr.Button("Find Shelters", variant="primary", scale=1)
+                    
+                    # Coordinate input for map clicks - HIDDEN for cleaner UI
                     coordinates_input = gr.Textbox(
-                        label="Selected Coordinates (click map to set)",
-                        placeholder="Click on map to select location...",
+                        label="",
+                        placeholder="",
                         elem_id="selected_coordinates",
                         interactive=False,
-                        visible=True
+                        visible=False  # Hidden - still works in background
                     )
                     
                     # Create map with explicit sizing
@@ -462,11 +554,12 @@ def create_ui():
                 yield history, "", create_initial_map(), user_loc
                 return
             
-            # Stream updates
-            async for history_update, sources_update, map_update in chat_with_llm_stream(
+            # Stream updates (now includes user_location in yields)
+            async for history_update, sources_update, map_update, updated_location in chat_with_llm_stream(
                 message, history, lang, max_d, user_loc
             ):
-                yield history_update, sources_update, map_update, user_loc
+                # Use updated_location if location was extracted from query
+                yield history_update, sources_update, map_update, updated_location
         
         msg.submit(
             respond,
@@ -491,6 +584,61 @@ def create_ui():
             outputs=[chatbot, sources_display, map_display, user_location_state]
         )
         
+        # Handle location search with geocoding
+        async def handle_location_search(location_name, count, radius, history, lang, max_d):
+            """Handle location search by name - geocode then find shelters with radius limit."""
+            if not location_name or not location_name.strip():
+                yield history, "", create_initial_map(), None
+                return
+            
+            try:
+                # Call LLM engine geocoding endpoint
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    geocode_response = await client.post(
+                        f"{config.LLM_ENGINE_URL}/geocode",
+                        json={"location": location_name, "bias_to_uppsala": True}
+                    )
+                    geocode_data = geocode_response.json()
+                
+                if not geocode_data.get("success"):
+                    # Add error message to chat
+                    error_msg = f"⚠️ Could not find location: '{location_name}'. Please try a different search."
+                    if lang == "sv":
+                        error_msg = f"⚠️ Kunde inte hitta platsen: '{location_name}'. Prova en annan sökning."
+                    
+                    history.append((location_name, error_msg))
+                    yield history, "", create_initial_map(), None
+                    return
+                
+                lat = geocode_data["lat"]
+                lng = geocode_data["lng"]
+                place_name = geocode_data.get("place_name", location_name)
+                formatted_address = geocode_data.get("formatted_address", "")
+                
+                # Store location with radius for future queries
+                location = {"lat": lat, "lng": lng, "max_radius_km": radius}
+                
+                # Create automatic query with radius constraint
+                query = f"Vilka är de {count} närmaste skyddsrummen inom {radius}km från {place_name} ({lat:.4f}, {lng:.4f})?"
+                if lang == "en":
+                    query = f"What are the {count} nearest shelters within {radius}km of {place_name} ({lat:.4f}, {lng:.4f})?"
+                
+                logger.info(f"Geocoded '{location_name}' to ({lat:.4f}, {lng:.4f}) - Searching {count} shelters within {radius}km")
+                
+                # Stream response with location and radius
+                async for history_update, sources_update, map_update, updated_location in chat_with_llm_stream(
+                    query, history, lang, count, location  # Use count instead of max_d
+                ):
+                    yield history_update, sources_update, map_update, updated_location
+                    
+            except Exception as e:
+                logger.error(f"Error during location search: {e}", exc_info=True)
+                error_msg = f"⚠️ Error searching location. Please try again."
+                if lang == "sv":
+                    error_msg = f"⚠️ Fel vid sökning av plats. Försök igen."
+                history.append((location_name, error_msg))
+                yield history, "", create_initial_map(), None
+        
         # Handle coordinate selection from map
         async def handle_location_selection(coords_str, history, lang, max_d):
             """Handle when user clicks on map to select location."""
@@ -506,19 +654,30 @@ def create_ui():
             
             lat, lng = coords
             
-            # Store location for future queries
-            location = {"lat": lat, "lng": lng}
+            # Store location for future queries (default 5km radius)
+            location = {"lat": lat, "lng": lng, "max_radius_km": 5.0}
             
             # Create automatic query for nearest shelters
-            query = f"Vilka är de 5 närmaste skyddsrummen till mig på plats ({lat:.4f}, {lng:.4f})?"
+            query = f"Vilka är de 5 närmaste skyddsrummen inom 5km från plats ({lat:.4f}, {lng:.4f})?"
             if lang == "en":
-                query = f"What are the 5 nearest shelters to my location at ({lat:.4f}, {lng:.4f})?"
+                query = f"What are the 5 nearest shelters within 5km of location ({lat:.4f}, {lng:.4f})?"
             
             # Stream response with location
-            async for history_update, sources_update, map_update in chat_with_llm_stream(
+            async for history_update, sources_update, map_update, updated_location in chat_with_llm_stream(
                 query, history, lang, max_d, location
             ):
-                yield history_update, sources_update, map_update, location
+                yield history_update, sources_update, map_update, updated_location
+        
+        # Wire up location search button
+        # Wire up location search button with radius and count
+        find_btn.click(
+            handle_location_search,
+            inputs=[location_search, shelter_count, max_radius, chatbot, language, max_docs],
+            outputs=[chatbot, sources_display, map_display, user_location_state]
+        ).then(
+            lambda: "",  # Clear search box after search
+            outputs=[location_search]
+        )
         
         coordinates_input.change(
             handle_location_selection,

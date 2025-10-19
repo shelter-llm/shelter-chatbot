@@ -16,6 +16,7 @@ import json
 
 from rag_engine import RAGEngine
 from shared.config import LLMEngineConfig
+from geocoding import get_geocoding_service
 
 # Configure logging
 logging.basicConfig(
@@ -137,6 +138,61 @@ async def health_check():
         vectordb_status=vectordb_status,
         model_name=config.MODEL_NAME
     )
+
+
+class GeocodeRequest(BaseModel):
+    """Geocoding request model."""
+    location: str = Field(..., description="Location name or address to geocode")
+    bias_to_uppsala: bool = Field(default=True, description="Bias results towards Uppsala area")
+
+
+class GeocodeResponse(BaseModel):
+    """Geocoding response model."""
+    success: bool
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    formatted_address: Optional[str] = None
+    place_name: Optional[str] = None
+    query: Optional[str] = None
+
+
+@app.post("/geocode", response_model=GeocodeResponse)
+async def geocode_location(request: GeocodeRequest):
+    """
+    Geocode a location name to coordinates.
+    
+    Args:
+        request: Geocoding request with location name
+        
+    Returns:
+        GeocodeResponse with coordinates or error
+    """
+    try:
+        logger.info(f"Geocoding location: '{request.location}'")
+        
+        geocoding_service = get_geocoding_service()
+        result = await geocoding_service.geocode_location(
+            request.location,
+            bias_to_uppsala=request.bias_to_uppsala
+        )
+        
+        if result:
+            logger.info(f"Successfully geocoded to ({result['lat']:.4f}, {result['lng']:.4f})")
+            return GeocodeResponse(
+                success=True,
+                lat=result["lat"],
+                lng=result["lng"],
+                formatted_address=result.get("formatted_address"),
+                place_name=result.get("place_name"),
+                query=result.get("query")
+            )
+        else:
+            logger.warning(f"Failed to geocode location: '{request.location}'")
+            return GeocodeResponse(success=False)
+            
+    except Exception as e:
+        logger.error(f"Error geocoding location: {e}", exc_info=True)
+        return GeocodeResponse(success=False)
 
 
 @app.post("/chat", response_model=ChatResponse)
