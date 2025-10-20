@@ -71,15 +71,12 @@ def scrape_and_process():
         scrape_status.status = "running"
         
         # Scrape shelter data
-        # Try real scraping first, fall back to mock data
         try:
             shelters = scraper.scrape_uppsala_shelters(config.SCRAPE_URL)
             if not shelters:
-                logger.warning("No shelters found, using mock data")
-                shelters = scraper.get_mock_data()
+                logger.error("No shelters found, using mock data")
         except Exception as e:
-            logger.error(f"Error scraping real data, using mock data: {e}")
-            shelters = scraper.get_mock_data()
+            logger.error(f"Error scraping real data: {e}")
         
         logger.info(f"Scraped {len(shelters)} shelters")
         

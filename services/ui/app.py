@@ -34,7 +34,7 @@ map_generator = MapGenerator(vectordb_url=config.VECTORDB_URL)
 # Translations (keeping your existing translations)
 TRANSLATIONS = {
     "sv": {
-        "title": "🏠 Uppsala Skyddsrum Chatbot",
+        "title": "Uppsala Skyddsrum Chatbot",
         "description": """Välkommen till Uppsala Skyddsrums-assistenten! 
         Jag kan hjälpa dig hitta information om skyddsrum i Uppsala. 
         Fråga mig om platser, kapacitet, tillgänglighet och mer.""",
@@ -51,8 +51,8 @@ TRANSLATIONS = {
         "update_map": "Uppdatera karta",
         "all_districts": "Alla",
         "error_message": "⚠️ Kunde inte ansluta till LLM Engine. Kontrollera att tjänsten körs.",
-        "sources_title": "📚 Källor:",
-        "sources_placeholder": "📚 Källor visas här efter varje fråga",
+        "sources_title": " Källor:",
+        "sources_placeholder": "Källor visas här efter varje fråga",
         "no_sources": "Inga källor hittades.",
         "capacity": "Kapacitet",
         "district": "Stadsdel",
@@ -63,13 +63,13 @@ TRANSLATIONS = {
 - **ChromaDB** för vektorsökning  
 - **RAG** (Retrieval Augmented Generation) för noggranna svar
 - **Streaming** för snabbare svar""",
-        "location_btn": "📍 Dela min plats",
+        "location_btn": "Dela min plats",
         "location_status": "Plats: Inte delad",
-        "location_shared": "✓ Plats delad: {lat:.4f}, {lng:.4f}",
-        "location_error": "⚠️ Kunde inte hämta plats",
+        "location_shared": "Plats delad: {lat:.4f}, {lng:.4f}",
+        "location_error": "Kunde inte hämta plats",
     },
     "en": {
-        "title": "🏠 Uppsala Emergency Shelter Chatbot",
+        "title": "Uppsala Emergency Shelter Chatbot",
         "description": """Welcome to the Uppsala Emergency Shelter Assistant! 
         I can help you find information about emergency shelters in Uppsala. 
         Ask me about locations, capacity, accessibility, and more.""",
@@ -86,8 +86,8 @@ TRANSLATIONS = {
         "update_map": "Update map",
         "all_districts": "All",
         "error_message": "⚠️ Could not connect to LLM Engine. Please check that the service is running.",
-        "sources_title": "📚 Sources:",
-        "sources_placeholder": "📚 Sources will appear here after each question",
+        "sources_title": "Sources:",
+        "sources_placeholder": "Sources will appear here after each question",
         "no_sources": "No sources found.",
         "capacity": "Capacity",
         "district": "District",
@@ -98,7 +98,7 @@ TRANSLATIONS = {
 - **ChromaDB** for vector search
 - **RAG** (Retrieval Augmented Generation) for accurate answers
 - **Streaming** for faster responses""",
-        "location_btn": "📍 Share my location",
+        "location_btn": "Share my location",
         "location_status": "Location: Not shared",
         "location_shared": "✓ Location shared: {lat:.4f}, {lng:.4f}",
         "location_error": "⚠️ Could not get location",
@@ -446,10 +446,10 @@ def create_ui():
                     
                     clear_btn = gr.Button(TRANSLATIONS["sv"]["clear"])
                     
-                    # Sources display - REMOVED for cleaner UI
+                    # Sources display 
                     sources_display = gr.Markdown(
                         value="",
-                        visible=False,  # Hidden for cleaner UI
+                        visible=False, # turned off for cleaner UI
                         elem_classes=["source-box"]
                     )
                     

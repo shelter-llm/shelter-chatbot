@@ -1,4 +1,4 @@
-<div align="center">
+<div align="left">
 
 # 🏠 Uppsala Emergency Shelter Chatbot
 
@@ -13,9 +13,9 @@
 <img src="https://img.shields.io/badge/Languages-Swedish%20%7C%20English-blue" alt="Languages">
 <img src="https://img.shields.io/badge/Vector%20DB-ChromaDB-purple" alt="ChromaDB">
 
-[Features](#-features) •
-[Quick Start](#-quick-start) •
-[Documentation](#-documentation) •
+[Features](#-features) 
+[Quick Start](#-quick-start) 
+[Documentation](#-documentation) 
 
 ---
 
@@ -23,7 +23,6 @@
 
 - [Prerequisites](#-prerequisites)
 - [Quick Start](#-quick-start)
-- [Configuration](#-configuration)
 - [Services](#-services)
 - [Usage Guide](#-usage-guide)
 - [License](#-license)
