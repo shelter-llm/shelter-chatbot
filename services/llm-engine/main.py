@@ -107,16 +107,16 @@ async def startup_event():
     logger.info(f"Vector DB URL: {config.VECTORDB_URL}")
     logger.info(f"Model: {config.MODEL_NAME}")
     
-    # Test vector DB connection
+    # test vector DB connection
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(f"{config.VECTORDB_URL}/health", timeout=10.0)
             if response.status_code == 200:
-                logger.info("✓ Vector DB connection successful")
+                logger.info("Vector DB connection successful")
             else:
-                logger.warning(f"⚠ Vector DB returned status {response.status_code}")
+                logger.warning(f"Vector DB returned status {response.status_code}")
     except Exception as e:
-        logger.error(f"✗ Vector DB connection failed: {e}")
+        logger.error(f"Vector DB connection failed: {e}")
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -254,7 +254,7 @@ async def chat_stream(request: ChatRequest):
                 max_context_docs=request.max_context_docs or 5,
                 user_location=request.user_location
             ):
-                # Send chunk as SSE
+                # Send chunk 
                 yield f"data: {json.dumps(chunk)}\n\n"
             
             # Send done signal
@@ -270,7 +270,7 @@ async def chat_stream(request: ChatRequest):
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"  # Disable nginx buffering
+            "X-Accel-Buffering": "no" 
         }
     )
 

@@ -1,4 +1,8 @@
-"""Geocoding service using Google Maps Geocoding API."""
+"""
+Geocoding service using Google Maps / OpenStreetMap  Geocoding API.
+If you have a Google Maps API key with billing enabled, it will use that.
+Otherwise, it falls back to free Nominatim (OpenStreetMap) geocoding.
+"""
 import os
 import logging
 import httpx
@@ -29,10 +33,10 @@ class GeocodingService:
         
         if self.use_nominatim:
             self.base_url = "https://nominatim.openstreetmap.org/search"
-            logger.info("🌍 Using Nominatim (OpenStreetMap) for geocoding - FREE, no API key needed!")
+            logger.info("Using Nominatim (OpenStreetMap) for geocoding - FREE, no API key needed!")
         else:
             self.base_url = "https://maps.googleapis.com/maps/api/geocode/json"
-            logger.info("🗺️ Using Google Maps Geocoding API")
+            logger.info("Using Google Maps Geocoding API")
         
         self.default_bounds = {
             # Uppsala kommun bounds (approximate)
@@ -131,7 +135,7 @@ class GeocodingService:
             }
             
             logger.info(
-                f"✅ Geocoded '{location_query}' to ({geocoded['lat']:.4f}, {geocoded['lng']:.4f}) "
+                f"Geocoded '{location_query}' to ({geocoded['lat']:.4f}, {geocoded['lng']:.4f}) "
                 f"via Nominatim - {geocoded['formatted_address']}"
             )
             
@@ -155,7 +159,6 @@ class GeocodingService:
             return None
         
         try:
-            # Prepare the query - add "Uppsala" if not present and bias is enabled
             query = location_query.strip()
             if bias_to_uppsala and "uppsala" not in query.lower():
                 query = f"{query}, Uppsala, Sweden"

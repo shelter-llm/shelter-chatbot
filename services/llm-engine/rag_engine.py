@@ -16,8 +16,8 @@ class RAGEngine:
         self,
         api_key: str,
         vectordb_url: str,
-        model_name: str = "gemini-2.5-flash",
-        temperature: float = 0.7,
+        model_name: str = "gemini-2.5-flash", # you can the modle from the .env too
+        temperature: float = 0.7, # the smae here
         max_tokens: int = 2048
     ):
         """
@@ -206,7 +206,7 @@ Provide a helpful and informative answer. If the question is about proximity to 
         Returns:
             Enhanced query with location context
         """
-        # Define location mappings with their districts/areas
+        # Define location mappings with their districts/areas, could be expanded
         location_mappings = {
             # University and Campus
             'ångström': 'Ångström Lägerhyddsvägen Boländerna norra Uppsala',
