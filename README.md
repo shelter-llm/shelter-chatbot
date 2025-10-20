@@ -15,66 +15,7 @@
 
 [Features](#-features) •
 [Quick Start](#-quick-start) •
-[Architecture](#-architecture) •
 [Documentation](#-documentation) •
-[Contributing](#-contributing)
-
----
-
-### 🎯 Ask questions, get instant answers, see locations on a map
-
-<img width="800" alt="Chatbot Demo" src="https://via.placeholder.com/800x400/1a1a2e/ffffff?text=Uppsala+Shelter+Chatbot+Demo">
-
-*An AI-powered assistant that helps Uppsala residents find emergency shelters with intelligent location detection, real-time streaming responses, and interactive maps.*
-
-</div>
-
----
-
-## ✨ Features
-
-<table>
-<tr>
-<td width="50%">
-
-### 🤖 **Intelligent AI Assistant**
-- **Streaming Responses** - Real-time text generation
-- **RAG Pipeline** - Accurate, source-grounded answers
-- **Context Awareness** - Multi-turn conversations
-- **Gemini 2.0 Flash** - State-of-the-art LLM
-
-</td>
-<td width="50%">
-
-### 🗺️ **Location Intelligence**
-- **Auto Location Extraction** - Detects places in queries
-- **Free Geocoding** - Nominatim (no API key!)
-- **Proximity Search** - Find shelters within radius
-- **Interactive Maps** - Visual shelter locations
-
-</td>
-</tr>
-<tr>
-<td width="50%">
-
-### 🌍 **Bilingual Support**
-- **Swedish & English** - Complete localization
-- **Dynamic Translation** - All UI elements
-- **Language-aware Examples** - Contextual help
-- **Culturally Adapted** - Uppsala-specific knowledge
-
-</td>
-<td width="50%">
-
-### 🏗️ **Modern Architecture**
-- **Microservices** - 4 independent services
-- **Docker Compose** - One-command deployment
-- **Vector Search** - ChromaDB semantic search
-- **REST APIs** - Clean service interfaces
-
-</td>
-</tr>
-</table>
 
 ---
 
@@ -83,13 +24,8 @@
 - [Prerequisites](#-prerequisites)
 - [Quick Start](#-quick-start)
 - [Configuration](#-configuration)
-- [Architecture](#-architecture)
 - [Services](#-services)
 - [Usage Guide](#-usage-guide)
-- [Development](#-development)
-- [Troubleshooting](#-troubleshooting)
-- [FAQ](#-faq)
-- [Contributing](#-contributing)
 - [License](#-license)
 
 ---
@@ -278,58 +214,6 @@ GRADIO_SERVER_PORT=8080
 
 </details>
 
----
-
-## 🏗️ Architecture
-
-The system uses a **microservices architecture** with four independent services:
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     🎨 USER INTERFACE (UI)                      │
-│                      Gradio • Port 7860                         │
-│  • Bilingual chat interface  • Real-time streaming             │
-│  • Interactive maps         • Location search                   │
-└────────────────────┬────────────────────────────────────────────┘
-                     │ HTTP/SSE
-                     ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                   🤖 LLM ENGINE (RAG Pipeline)                  │
-│                     FastAPI • Port 8001                         │
-│  • Gemini 2.0 Flash        • Location extraction               │
-│  • Context retrieval       • Response streaming                │
-└────────┬────────────────────────────────────────────┬───────────┘
-         │                                            │
-         │ Vector Search                              │ Geocoding
-         ▼                                            ▼
-┌────────────────────────┐              ┌─────────────────────────┐
-│  🗄️ VECTOR DATABASE   │              │  🌍 GEOCODING          │
-│   ChromaDB • Port 8000 │              │   Nominatim (FREE)     │
-│  • Semantic search     │              │  • Address lookup      │
-│  • 768-dim embeddings  │              │  • No API key needed   │
-└────────┬───────────────┘              └─────────────────────────┘
-         │
-         │ Data Updates
-         ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    🕷️ DATA SCRAPER                             │
-│                     FastAPI • Port 8002                         │
-│  • Web scraping (allaskyddsrum.se)  • Data processing          │
-│  • Embedding generation             • Scheduled updates        │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Service Communication
-
-```mermaid
-graph LR
-    A[User] -->|HTTP| B[UI Service]
-    B -->|SSE Stream| C[LLM Engine]
-    C -->|Vector Search| D[VectorDB]
-    C -->|Geocode| E[Nominatim]
-    F[Scraper] -->|Store Embeddings| D
-    F -->|Scheduled/Manual| F
-```
 
 ---
 
@@ -517,52 +401,6 @@ Bot: "The largest in Centrum is..."
 
 ---
 
-## 🛠️ Development
-
-### Project Structure
-
-```
-shelter-chatbot/
-├── 📄 docker-compose.yml       # Service orchestration
-├── 📄 .env                     # Environment configuration
-├── 📄 pyproject.toml          # Project metadata
-├── 📁 services/
-│   ├── 📁 vectordb/           # ChromaDB service
-│   │   ├── Dockerfile
-│   │   ├── main.py
-│   │   ├── chromadb_manager.py
-│   │   └── requirements.txt
-│   ├── 📁 scraper/            # Data scraping service
-│   │   ├── Dockerfile
-│   │   ├── main.py
-│   │   ├── scraper.py
-│   │   ├── processor.py
-│   │   └── requirements.txt
-│   ├── 📁 llm-engine/         # RAG pipeline service
-│   │   ├── Dockerfile
-│   │   ├── main.py
-│   │   ├── rag_engine.py
-│   │   └── requirements.txt
-│   └── 📁 ui/                 # Gradio interface
-│       ├── Dockerfile
-│       ├── app.py
-│       ├── map_generator.py
-│       ├── interactive_map.py
-│       └── requirements.txt
-├── 📁 shared/                 # Shared utilities
-│   ├── __init__.py
-│   ├── config.py
-│   └── models.py
-├── 📁 data/                   # Data storage
-│   ├── raw/
-│   └── processed/
-├── 📁 chromadb_data/          # Vector DB persistence
-└── 📁 tests/                  # Test suite
-    ├── test_scraper.py
-    ├── test_vectordb.py
-    └── test_integration.py
-```
-
 ### Docker Commands
 
 ```bash
@@ -584,21 +422,7 @@ docker compose down -v
 # Restart a service
 docker compose restart scraper
 ```
-
-### Local Development
-
-```bash
-# Install dependencies for a service
-cd services/ui
-pip install -r requirements.txt
-
-# Run service locally (requires .env)
-python app.py
-
-# Run tests
-pytest tests/
-```
-
+---
 
 ## 📄 License
 
