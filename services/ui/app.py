@@ -741,9 +741,14 @@ def create_ui():
 
 
 if __name__ == "__main__":
-    logger.info(f"Starting UI service...")
+    logger.info("=" * 80)
+    logger.info("Starting Uppsala Shelter Chatbot UI Service")
+    logger.info("=" * 80)
     logger.info(f"LLM Engine URL: {config.LLM_ENGINE_URL}")
     logger.info(f"Vector DB URL: {config.VECTORDB_URL}")
+    logger.info(f"Server: {config.GRADIO_SERVER_NAME}:{config.GRADIO_SERVER_PORT}")
+    logger.info(f"Access URL: http://localhost:{config.GRADIO_SERVER_PORT}")
+    logger.info("=" * 80)
     
     demo = create_ui()
     demo.launch(
